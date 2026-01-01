@@ -68,6 +68,7 @@ async function init() {
     global.mongoConnected = true;
   } catch (err) {
     console.error('MongoDB error:', err.message);
+    console.error('MongoDB error FULL:', err);
     global.mongoConnected = false;
   }
 }
