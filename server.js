@@ -76,6 +76,19 @@ async function init() {
 init();
 
 
+mongoose.connection.on('connecting', () =>
+  console.log('Mongoose: connecting')
+);
+
+mongoose.connection.on('connected', () =>
+  console.log('Mongoose: connected')
+);
+
+mongoose.connection.on('error', err =>
+  console.error('Mongoose error:', err.message)
+);
+
+
 
 /* =========================
    Public routes
