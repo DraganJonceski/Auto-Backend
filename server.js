@@ -165,9 +165,12 @@ const PORT = process.env.PORT || 5000;
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-    console.log('MONGO_URI from env:', process.env.MONGO_URI ? 'SET' : 'NOT SET');
+    console.log(
+      'MONGO_URI from env:',
+      process.env.MONGO_URI ? 'SET' : 'NOT SET'
+    );
   });
 }
 
-
 module.exports = app;
+
