@@ -61,15 +61,19 @@ app.use(express.json());
 /* =========================
    MongoDB
 ========================= */
-connectToDatabase()
-  .then(() => {
+async function init() {
+  try {
+    await connectToDatabase();               // wait until connected
     console.log('MongoDB connected');
     global.mongoConnected = true;
-  })
-  .catch((err) => {
+  } catch (err) {
     console.error('MongoDB error:', err.message);
     global.mongoConnected = false;
-  });
+  }
+}
+
+init();
+
 
 
 /* =========================
