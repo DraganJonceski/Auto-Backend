@@ -1,6 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const Product = require('../../models/Product');
+const Product = require('../models/Product');
 
 const BASE_URL = 'https://alvadi.mk';
 
