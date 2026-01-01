@@ -81,7 +81,7 @@ app.use('/api/tracking', trackingRoutes);
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    mongoConnected: !!global.mongoConnected
+    mongoState: mongoose.connection.readyState,
   });
 });
 
