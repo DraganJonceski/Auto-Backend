@@ -60,21 +60,18 @@ app.use(express.json());
 /* =========================
    MongoDB
 ========================= */
-mongoose
-  .connect(process.env.MONGO_URI, {
-    // optional but good defaults
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-  })
+const connectToDatabase = require('./db');
+
+connectToDatabase()
   .then(() => {
     console.log('MongoDB connected');
     global.mongoConnected = true;
   })
-  .catch(err => {
+  .catch((err) => {
     console.error('MongoDB error:', err.message);
-    console.error('MongoDB full error:', err);
     global.mongoConnected = false;
   });
+
 
 /* =========================
    Public routes
