@@ -61,8 +61,6 @@ app.use(express.json());
 /* =========================
    MongoDB
 ========================= */
-const connectToDatabase = require('./db');
-
 connectToDatabase()
   .then(() => {
     console.log('MongoDB connected');
