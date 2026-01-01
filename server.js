@@ -3,6 +3,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const connectToDatabase = require('./db');
 
 const searchRoutes = require('./routes/search');
 const trackingRoutes = require('./routes/tracking');
