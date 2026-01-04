@@ -1,88 +1,144 @@
+// scrapers/delmakScraper.js
+
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { createScraperInstance, randomDelay } = require('../utils/scraperConfig');
+const { scraperLogger } = require('../utils/logger');
 
 const BASE_URL = 'https://www.delmak.mk';
 
-async function scrapeDelmakCategory(categoryUrl) {
+/**
+ * Scrape a single Delmak category
+ */
+async function scrapeDelmakCategory(categoryUrl, retries = 3) {
   try {
-    console.log('Scraping Delmak:', categoryUrl);
-    
-    const response = await axios.get(BASE_URL + categoryUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}\
-        timeout: 10000
-    });
+    scraperLogger.info({ url: categoryUrl }, 'Starting Delmak category scrape');
 
-    const $ = cheerio.load(response.data);
+    await randomDelay(500, 1500);
+
+    let html;
+    let attempt = 0;
+
+    while (attempt < retries) {
+      try {
+        scraperLogger.debug({ attempt: attempt + 1, retries }, 'Fetching Delmak page');
+        
+        const scraper = createScraperInstance();
+        const response = await scraper.get(categoryUrl);
+
+        if (response.status === 403 || response.status === 429) {
+          throw new Error(`Got HTTP ${response.status} - possibly blocked`);
+        }
+
+        if (response.data.includes('robot') || response.data.includes('captcha')) {
+          throw new Error('Detected robot/CAPTCHA page');
+        }
+
+        html = response.data;
+        break;
+      } catch (err) {
+        attempt++;
+        if (attempt >= retries) {
+          throw err;
+        }
+
+        const backoffTime = Math.pow(2, attempt) * 1000;
+        scraperLogger.warn(
+          { error: err.message, nextRetryMs: backoffTime },
+          'Delmak fetch attempt failed, retrying...'
+        );
+        await randomDelay(backoffTime, backoffTime + 500);
+      }
+    }
+
+    const $ = cheerio.load(html);
     const products = [];
 
-    $('.product-item, .product-card').each((i, el) => {
-      const name = $(el).find('.product-name, .title').text().trim();
-      const price = $(el).find('.price').text().trim();
-      const link = $(el).find('a').attr('href');
-      const partNumber = $(el).find('.part-number, .sku').text().trim();
+    // Adjust selector based on Delmak's actual HTML structure
+    $('div.product-item, div.product-card, li.product').each((_, el) => {
+      try {
+        const card = $(el);
 
-      if (name && price && link) {
-        products.push({
-          part_name: name,
-          part_number: partNumber || null,
-          price: parseFloat(price.replace(/[^\d.]/g, '')) || 0,
-          supplier: 'Delmak',
-          product_url: link.startsWith('http') ? link : BASE_URL + link
-        });
+        const name = card.find('h3, .product-name, .title').text().trim();
+        const priceText = card.find('.price, span.price').text().trim();
+        let href = card.find('a').first().attr('href') || '';
+        const partNumber = card.find('.part-number, .sku, .code').text().trim();
+
+        // Normalize URL
+        if (href && !href.startsWith('http')) {
+          href = BASE_URL + (href.startsWith('/') ? '' : '/') + href;
+        }
+
+        // Parse price
+        const price = priceText ? parseFloat(priceText.replace(/[^\d.]/g, '')) : null;
+
+        if (name && href && price) {
+          products.push({
+            part_name: name,
+            part_number: partNumber || null,
+            price: price,
+            supplier: 'Delmak',
+            product_url: href
+          });
+        }
+      } catch (err) {
+        scraperLogger.warn({ error: err.message }, 'Error parsing Delmak product');
       }
     });
 
+    scraperLogger.info({ count: products.length }, `Delmak found ${products.length} products`);
+
     if (products.length === 0) {
-      console.log('No products found');
+      scraperLogger.warn({ url: categoryUrl }, 'No products found on Delmak category');
       return 0;
     }
 
-    // Insert into PostgreSQL
-    const connectToDatabase = require('../db');
-    const sql = await connectToDatabase();
-    
+    // Insert into database
     let inserted = 0;
     for (const product of products) {
       try {
-        await sql`
+        await global.db`
           INSERT INTO products (part_name, part_number, price, supplier, product_url)
-          VALUES (
-            ${product.part_name},
-            ${product.part_number},
-            ${product.price},
-            ${product.supplier},
-            ${product.product_url}
-          )
-          ON CONFLICT (product_url) DO NOTHING
+          VALUES (${product.part_name}, ${product.part_number}, ${product.price}, ${product.supplier}, ${product.product_url})
+          ON CONFLICT (product_url) DO UPDATE
+          SET price = ${product.price}, last_updated = CURRENT_TIMESTAMP
         `;
         inserted++;
       } catch (err) {
-        console.warn('Insert error for', product.part_name, ':', err.message);
+        scraperLogger.warn({ product: product.part_name, error: err.message }, 'Insert error for Delmak product');
       }
+
+      await randomDelay(50, 150);
     }
 
-    console.log(`Inserted ${inserted} Delmak products`);
+    scraperLogger.info({ inserted, total: products.length }, 'Delmak category scrape complete');
     return inserted;
   } catch (err) {
-    if (err.code === 'ECONNABORTED') {
-      console.error('Scraper timeout');
-    }
-    throw err;  // Or retry logic
+    scraperLogger.error({ error: err.message, url: categoryUrl }, 'Delmak category scrape failed');
+    throw err;
   }
 }
 
-async function runDelmakScraper() {
-  // Scrape multiple Delmak category URLs
-  const categories = [
-    '/spare-parts/air-filters',
-    '/spare-parts/oil-filters'
+/**
+ * Run all Delmak categories
+ */
+async function runDelmakScraper(categories = null) {
+  const defaultCategories = [
+    'https://www.delmak.mk/spare-parts/air-filters',
+    'https://www.delmak.mk/spare-parts/oil-filters'
   ];
 
+  const categoriesToScrape = categories || defaultCategories;
   let total = 0;
-  for (const category of categories) {
-    const count = await scrapeDelmakCategory(category);
-    total += count;
+
+  for (const category of categoriesToScrape) {
+    try {
+      const count = await scrapeDelmakCategory(category);
+      total += count;
+      await randomDelay(1000, 2000);
+    } catch (err) {
+      scraperLogger.error({ category, error: err.message }, 'Failed to scrape Delmak category');
+    }
   }
 
   return total;
