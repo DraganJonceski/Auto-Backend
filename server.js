@@ -83,29 +83,18 @@ app.use('/api/tracking', trackingRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {
-    if (!global.db) {
-      return res.status(503).json({ 
-        status: 'error', 
-        error: 'Database not initialized',
-        dbInitialized: dbInitialized,
-        databaseUrlSet: !!process.env.DATABASE_URL
-      });
-    }
-
-    const result = await global.db.query('SELECT NOW()');
+    const sql = await global.db;
+    const result = await sql`SELECT NOW()`;
     res.json({
       status: 'ok',
-      dbConnected: !!result.rows[0],
-      timestamp: result.rows[0].now
+      dbConnected: !!result[0],
+      timestamp: result[0].now
     });
   } catch (err) {
-    res.status(500).json({ 
-      status: 'error', 
-      error: err.message,
-      dbInitialized: dbInitialized
-    });
+    res.status(500).json({ status: 'error', error: err.message });
   }
 });
+
 
 app.get('/api/debug-env', (req, res) => {
   res.json({

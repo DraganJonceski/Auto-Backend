@@ -39,22 +39,23 @@ async function scrapeDelmakCategory(categoryUrl) {
     }
 
     // Insert into PostgreSQL
-    const query = `
-      INSERT INTO products (part_name, part_number, price, supplier, product_url)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT DO NOTHING
-    `;
-
+    const connectToDatabase = require('../db');
+    const sql = await connectToDatabase();
+    
     let inserted = 0;
     for (const product of products) {
       try {
-        await global.db.query(query, [
-          product.part_name,
-          product.part_number,
-          product.price,
-          product.supplier,
-          product.product_url
-        ]);
+        await sql`
+          INSERT INTO products (part_name, part_number, price, supplier, product_url)
+          VALUES (
+            ${product.part_name},
+            ${product.part_number},
+            ${product.price},
+            ${product.supplier},
+            ${product.product_url}
+          )
+          ON CONFLICT (product_url) DO NOTHING
+        `;
         inserted++;
       } catch (err) {
         console.warn('Insert error for', product.part_name, ':', err.message);
