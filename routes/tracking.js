@@ -1,23 +1,26 @@
+// routes/tracking.js
 const express = require('express');
-const Product = require('../Product');
 const router = express.Router();
 
-// POST /api/tracking/click
 router.post('/click', async (req, res) => {
   try {
-    const { productId } = req.body;
+    const { productId, supplier } = req.body;
 
-    const product = await Product.findById(productId);
-    if (!product) {
-      return res.status(404).json({ success: false, error: 'Product not found' });
+    if (!productId) {
+      return res.status(400).json({ error: 'Missing productId' });
     }
 
-    res.json({
-      success: true,
-      redirectUrl: product.affiliateUrl || product.productUrl
-    });
+    const query = `
+      INSERT INTO clicks (product_id, supplier)
+      VALUES ($1, $2)
+      RETURNING *
+    `;
+
+    await global.db.query(query, [productId, supplier]);
+    res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Tracking error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

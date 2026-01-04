@@ -1,27 +1,30 @@
 // routes/search.js
 const express = require('express');
-const Product = require('../Product');
-
 const router = express.Router();
 
 router.get('/search', async (req, res) => {
   try {
-    const { query } = req.query;
+    const { q } = req.query;
 
-    const filter = query
-      ? { partName: { $regex: query, $options: 'i' } }
-      : {};
+    if (!q || q.trim() === '') {
+      return res.json([]);
+    }
 
-    const products = await Product.find(filter).limit(50);
+    const query = `
+      SELECT id, part_name, part_number, price, supplier, product_url
+      FROM products
+      WHERE 
+        part_name ILIKE $1 
+        OR part_number ILIKE $1
+      ORDER BY price ASC
+      LIMIT 100
+    `;
 
-    res.json({
-      success: true,
-      total: products.length,
-      data: products
-    });
-  } catch (err) {
-    console.error('SEARCH ERROR:', err);
-    res.status(500).json({ success: false, error: err.message });
+    const result = await global.db.query(query, [`%${q}%`]);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
