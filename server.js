@@ -83,7 +83,7 @@ app.use('/api/click', trackingRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {
-    const sql = await global.db;
+    const sql = await connectToDatabase();
     const result = await sql`SELECT NOW()`;
     res.json({
       status: 'ok',
@@ -94,6 +94,7 @@ app.get('/api/health', async (req, res) => {
     res.status(500).json({ status: 'error', error: err.message });
   }
 });
+
 
 
 app.get('/api/debug-env', (req, res) => {
