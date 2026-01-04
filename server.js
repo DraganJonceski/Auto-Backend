@@ -6,7 +6,7 @@ const connectToDatabase = require('./db');
 const createTables = require('./models/createTables');
 
 const searchRoutes = require('./routes/search');
-const trackingRoutes = require('./routes/tracking');
+const trackingRoutes = require('./routes/click');
 const { runDelmakScraper } = require('./scrapers/delmakScraper');
 const scrapeAlvadiCategory = require('./scrapers/alvadiScraper');
 
