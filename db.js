@@ -1,34 +1,24 @@
 // db.js
-const { Pool } = require('pg');
+const { neon } = require('@neondatabase/serverless');
 
-let pool;
+let sql;
 
 async function connectToDatabase() {
-  if (pool) return pool;
+  if (sql) return sql;
 
-  console.log('[DB] Creating pool with DATABASE_URL...');
+  console.log('[DB] Initializing Neon serverless connection...');
   
   try {
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false
-      },
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000
-    });
-
+    sql = neon(process.env.DATABASE_URL);
+    
     // Test connection
     console.log('[DB] Testing connection...');
-    const result = await pool.query('SELECT NOW()');
-    console.log('[DB] PostgreSQL connected at:', result.rows[0].now);
-    return pool;
+    const result = await sql`SELECT NOW()`;
+    console.log('[DB] Neon connected at:', result[0].now);
+    return sql;
   } catch (err) {
     console.error('[DB] Connection failed');
-    console.error('[DB] Error code:', err.code);
     console.error('[DB] Error message:', err.message);
-    console.error('[DB] Full error:', JSON.stringify(err, null, 2));
     throw err;
   }
 }
