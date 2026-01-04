@@ -1,29 +1,25 @@
 // db.js
-const mongoose = require('mongoose');
+const { Pool } = require('pg');
 
-let cached = global.mongoose;
-
-if (!cached) {
-  cached = global.mongoose = { conn: null, promise: null };
-}
+let pool;
 
 async function connectToDatabase() {
-  if (cached.conn) return cached.conn;
+  if (pool) return pool;
 
-  if (!cached.promise) {
-    cached.promise = mongoose.connect(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 10000, // IMPORTANT
-    });
-  }
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+      rejectUnauthorized: false // needed for Neon + Vercel
+    }
+  });
 
+  // Test connection
   try {
-    cached.conn = await cached.promise;
-    return cached.conn;
+    const result = await pool.query('SELECT NOW()');
+    console.log('PostgreSQL connected at:', result.rows.now);
+    return pool;
   } catch (err) {
-    //  CRITICAL: reset cache on failure
-    cached.promise = null;
+    console.error('PostgreSQL connection error:', err);
     throw err;
   }
 }
