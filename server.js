@@ -14,6 +14,7 @@ dotenv.config();
 
 let pool;
 global.db = null;
+let dbInitialized = false;
 
 const app = express();
 
@@ -51,17 +52,29 @@ app.use(express.json());
 /* ===== PostgreSQL Init ===== */
 async function init() {
   try {
+    console.log('[INIT] DATABASE_URL env var:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+    
+    if (!process.env.DATABASE_URL) {
+      console.error('[INIT] ERROR: DATABASE_URL not found in environment variables');
+      return;
+    }
+
     pool = await connectToDatabase();
     global.db = pool;
     
-    // Create tables on startup
+    console.log('[INIT] Pool created, creating tables...');
     await createTables();
-    console.log('PostgreSQL initialized');
+    
+    dbInitialized = true;
+    console.log('[INIT] PostgreSQL fully initialized and ready');
   } catch (err) {
-    console.error('PostgreSQL error:', err.message);
+    console.error('[INIT] PostgreSQL initialization error:', err.message);
+    console.error('[INIT] Full error:', err);
+    dbInitialized = false;
   }
 }
 
+// Start initialization immediately
 init();
 
 /* ===== Routes ===== */
@@ -70,19 +83,46 @@ app.use('/api/tracking', trackingRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {
+    if (!global.db) {
+      return res.status(503).json({ 
+        status: 'error', 
+        error: 'Database not initialized',
+        dbInitialized: dbInitialized,
+        databaseUrlSet: !!process.env.DATABASE_URL
+      });
+    }
+
     const result = await global.db.query('SELECT NOW()');
     res.json({
       status: 'ok',
-      dbConnected: !!result.rows
+      dbConnected: !!result.rows[0],
+      timestamp: result.rows[0].now
     });
   } catch (err) {
-    res.status(500).json({ status: 'error', error: err.message });
+    res.status(500).json({ 
+      status: 'error', 
+      error: err.message,
+      dbInitialized: dbInitialized
+    });
   }
+});
+
+app.get('/api/debug-env', (req, res) => {
+  res.json({
+    databaseUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
+    dbInitialized: dbInitialized,
+    globalDbExists: !!global.db,
+    nodeEnv: process.env.NODE_ENV
+  });
 });
 
 /* ===== Admin routes ===== */
 app.get('/api/admin/scrape-delmak-now', adminAuth, async (req, res) => {
   try {
+    if (!global.db) {
+      return res.status(503).json({ success: false, error: 'Database not initialized' });
+    }
+
     console.log('[ADMIN] Delmak scrape triggered');
     const inserted = await runDelmakScraper();
     res.json({
@@ -101,6 +141,10 @@ app.get('/api/admin/scrape-delmak-now', adminAuth, async (req, res) => {
 
 app.get('/api/admin/scrape-alvadi', adminAuth, async (req, res) => {
   try {
+    if (!global.db) {
+      return res.status(503).json({ success: false, error: 'Database not initialized' });
+    }
+
     const { url } = req.query;
     if (!url) {
       return res.status(400).json({ success: false, error: 'Missing url parameter' });
@@ -118,12 +162,6 @@ app.get('/api/admin/scrape-alvadi', adminAuth, async (req, res) => {
       error: error.message
     });
   }
-});
-
-app.get('/api/debug-env', (req, res) => {
-  res.json({
-    databaseUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET'
-  });
 });
 
 /* ===== Export for Vercel ===== */
