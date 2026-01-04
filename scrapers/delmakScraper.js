@@ -9,8 +9,8 @@ async function scrapeDelmakCategory(categoryUrl) {
     
     const response = await axios.get(BASE_URL + categoryUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-      }
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}\
+        timeout: 10000
     });
 
     const $ = cheerio.load(response.data);
@@ -65,8 +65,10 @@ async function scrapeDelmakCategory(categoryUrl) {
     console.log(`Inserted ${inserted} Delmak products`);
     return inserted;
   } catch (err) {
-    console.error('Delmak scrape error:', err.message);
-    throw err;
+    if (err.code === 'ECONNABORTED') {
+      console.error('Scraper timeout');
+    }
+    throw err;  // Or retry logic
   }
 }
 

@@ -2,13 +2,15 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const cron = require('node-cron');
 const connectToDatabase = require('./db');
 const createTables = require('./models/createTables');
-
 const searchRoutes = require('./routes/search');
 const trackingRoutes = require('./routes/click');
+const adminRoutes = require('./routes/admin');
 const { runDelmakScraper } = require('./scrapers/delmakScraper');
 const scrapeAlvadiCategory = require('./scrapers/alvadiScraper');
+const { logger } = require('./utils/logger');
 
 dotenv.config();
 
@@ -33,6 +35,13 @@ const allowedOrigins = new Set([
   'http://localhost:3000',
   'http://localhost:5173'
 ]);
+
+// Run scrapers every 6 hours
+cron.schedule('0 */6 * * *', async () => {
+  console.log('Running scheduled scrape...');
+  await runDelmakScraper();
+  await scrapeAlvadiCategory('https://alvadi.mk/...');
+});
 
 app.use(
   cors({
