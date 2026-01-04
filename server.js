@@ -5,10 +5,10 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const cron = require('node-cron');
 const connectToDatabase = require('./db');
-const createTables = require('./models/createTables');
+const createTables = require('./createTables.js');
 const searchRoutes = require('./routes/search');
 const trackingRoutes = require('./routes/click');
-const adminRoutes = require('./routes/admin');
+const adminRoutes = require('./routes/admin.js');
 const { logger } = require('./utils/logger');
 
 dotenv.config();

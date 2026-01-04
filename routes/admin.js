@@ -1,9 +1,8 @@
-// routes/admin.js - COMPLETE WORKING VERSION
+// routes/admin.js - COMPLETE FULL FILE
 
 const express = require('express');
 const router = express.Router();
 
-// Simple logging instead of logger object
 function logInfo(msg, data = '') {
   console.log(`[ADMIN INFO] ${new Date().toISOString()} ${msg}`, data);
 }
@@ -12,7 +11,6 @@ function logError(msg, error = '') {
   console.error(`[ADMIN ERROR] ${new Date().toISOString()} ${msg}`, error.message || error);
 }
 
-// Authentication middleware
 router.use((req, res, next) => {
   const token = req.headers['x-admin-token'] || req.query.token;
   if (token !== process.env.admin_token) {
@@ -21,10 +19,6 @@ router.use((req, res, next) => {
   next();
 });
 
-/**
- * GET /api/admin/stats
- * Returns total products and stats by supplier
- */
 router.get('/stats', async (req, res) => {
   try {
     logInfo('Admin stats requested');
@@ -68,10 +62,6 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-/**
- * GET /api/admin/scrape-all
- * Placeholder for scraping all suppliers
- */
 router.get('/scrape-all', async (req, res) => {
   try {
     logInfo('Scrape-all triggered');
@@ -83,29 +73,38 @@ router.get('/scrape-all', async (req, res) => {
       });
     }
 
-    const results = {
-      message: 'Scrape functionality will be implemented here',
-      status: 'ready',
-      next_steps: [
-        '1. Create scrapers/categoryUrls.js with category URLs',
-        '2. Implement hybrid category discovery',
-        '3. Add actual scraper functions'
-      ]
-    };
+    const { runDelmakScraper } = require('../scrapers/delmakScraper');
+    const results = {};
+    const startTime = Date.now();
 
-    logInfo('Scrape-all placeholder response', results);
-    res.json(results);
+    try {
+      logInfo('Starting Delmak scrape...');
+      const delmakCount = await runDelmakScraper();
+      results.delmak = delmakCount;
+      logInfo('Delmak scrape completed', { count: delmakCount });
+    } catch (err) {
+      logError('Delmak scrape failed', err);
+      results.delmak = { error: err.message };
+    }
+
+    const duration = Date.now() - startTime;
+    logInfo('Scrape-all completed', { results, duration_ms: duration });
+
+    res.json({
+      success: true,
+      results,
+      duration_ms: duration,
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
-    logError('Scrape-all error', error);
-    res.status(500).json({ error: error.message });
+    logError('Scrape-all endpoint error', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
-/**
- * GET /api/admin/products
- * List all products with optional filtering
- * Query params: supplier, limit, offset, search
- */
 router.get('/products', async (req, res) => {
   try {
     const { supplier, limit = 50, offset = 0, search } = req.query;
@@ -133,7 +132,6 @@ router.get('/products', async (req, res) => {
       params.push(`%${search}%`);
     }
 
-    // Get count
     let countQuery = 'SELECT COUNT(*) FROM products WHERE 1=1';
     if (supplier) countQuery += ' AND supplier = $1';
     if (search) countQuery += ` AND part_name ILIKE $${params.length}`;
@@ -141,7 +139,6 @@ router.get('/products', async (req, res) => {
     const countResult = await global.db.query(countQuery, params);
     const total = parseInt(countResult.rows[0].count);
 
-    // Get products
     query += ` ORDER BY last_updated DESC LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`;
     const result = await global.db.query(query, params);
 
@@ -167,10 +164,6 @@ router.get('/products', async (req, res) => {
   }
 });
 
-/**
- * DELETE /api/admin/products/:id
- * Delete a specific product
- */
 router.delete('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -197,10 +190,6 @@ router.delete('/products/:id', async (req, res) => {
   }
 });
 
-/**
- * DELETE /api/admin/products/supplier/:supplier
- * Delete all products from a supplier
- */
 router.delete('/products/supplier/:supplier', async (req, res) => {
   try {
     const { supplier } = req.params;

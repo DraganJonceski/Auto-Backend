@@ -1,147 +1,144 @@
-// scrapers/delmakScraper.js
+// scrapers/delmakScraper.js - FIXED VERSION
 
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { createScraperInstance, randomDelay } = require('../utils/scraperConfig');
-const { scraperLogger } = require('../utils/logger');
+const DELMAK_CATEGORIES = require('./delmakCategories');
 
-const BASE_URL = 'https://www.delmak.mk';
+const BASE_URL = 'https://delmak.mk';
 
-/**
- * Scrape a single Delmak category
- */
 async function scrapeDelmakCategory(categoryUrl, retries = 3) {
   try {
-    scraperLogger.info({ url: categoryUrl }, 'Starting Delmak category scrape');
-
-    await randomDelay(500, 1500);
+    console.log(`[DELMAK] Scraping: ${categoryUrl.substring(0, 80)}...`);
 
     let html;
     let attempt = 0;
 
     while (attempt < retries) {
       try {
-        scraperLogger.debug({ attempt: attempt + 1, retries }, 'Fetching Delmak page');
-        
-        const scraper = createScraperInstance();
-        const response = await scraper.get(categoryUrl);
+        const response = await axios.get(categoryUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          },
+          timeout: 15000
+        });
 
         if (response.status === 403 || response.status === 429) {
-          throw new Error(`Got HTTP ${response.status} - possibly blocked`);
-        }
-
-        if (response.data.includes('robot') || response.data.includes('captcha')) {
-          throw new Error('Detected robot/CAPTCHA page');
+          throw new Error(`Got HTTP ${response.status}`);
         }
 
         html = response.data;
+        console.log(`[DELMAK] ✅ Got response (${html.length} bytes)`);
         break;
       } catch (err) {
         attempt++;
-        if (attempt >= retries) {
-          throw err;
-        }
-
-        const backoffTime = Math.pow(2, attempt) * 1000;
-        scraperLogger.warn(
-          { error: err.message, nextRetryMs: backoffTime },
-          'Delmak fetch attempt failed, retrying...'
-        );
-        await randomDelay(backoffTime, backoffTime + 500);
+        if (attempt >= retries) throw err;
+        console.log(`[DELMAK] Attempt ${attempt} failed, retrying...`);
+        await new Promise(r => setTimeout(r, 2000 + Math.random() * 2000));
       }
     }
 
     const $ = cheerio.load(html);
     const products = [];
 
-    // Adjust selector based on Delmak's actual HTML structure
-    $('div.product-item, div.product-card, li.product').each((_, el) => {
+    $('div.product-card, div[class*="product-card"], li[class*="product"]').each((_, el) => {
       try {
         const card = $(el);
 
-        const name = card.find('h3, .product-name, .title').text().trim();
-        const priceText = card.find('.price, span.price').text().trim();
-        let href = card.find('a').first().attr('href') || '';
-        const partNumber = card.find('.part-number, .sku, .code').text().trim();
-
-        // Normalize URL
-        if (href && !href.startsWith('http')) {
-          href = BASE_URL + (href.startsWith('/') ? '' : '/') + href;
+        let name = card.find('h6, .pc_title, .product-title, a[href*="/d/"]').first().text().trim();
+        if (!name) {
+          name = card.find('a').first().text().trim();
         }
 
-        // Parse price
-        const price = priceText ? parseFloat(priceText.replace(/[^\d.]/g, '')) : null;
+        if (!name) return;
 
-        if (name && href && price) {
+        let productUrl = card.find('a[href*="/d/"]').attr('href') || card.find('a').first().attr('href') || '';
+        if (!productUrl.startsWith('http')) {
+          productUrl = BASE_URL + (productUrl.startsWith('/') ? '' : '/') + productUrl;
+        }
+
+        if (!productUrl.includes('delmak')) return;
+
+        let priceText = card.find('.product-card-price, .price, [class*="price"]').first().text().trim();
+        const priceMatch = priceText.match(/[\d,\.]+/);
+        const price = priceMatch ? parseFloat(priceMatch[0].replace(',', '.')) : 0;
+
+        if (price === 0 || isNaN(price)) {
+          console.warn(`[DELMAK] Warning: Could not parse price for "${name}"`);
+        }
+
+        let partNumber = card.find('[class*="sku"], [class*="code"], [class*="sifra"]').text().trim();
+        if (!partNumber) {
+          const titleParts = name.split(/[\(\)\-]/);
+          partNumber = titleParts[titleParts.length - 1]?.trim() || null;
+        }
+
+        if (name && productUrl && price > 0) {
           products.push({
             part_name: name,
             part_number: partNumber || null,
             price: price,
             supplier: 'Delmak',
-            product_url: href
+            product_url: productUrl
           });
         }
       } catch (err) {
-        scraperLogger.warn({ error: err.message }, 'Error parsing Delmak product');
+        console.warn('[DELMAK] Error parsing product:', err.message);
       }
     });
 
-    scraperLogger.info({ count: products.length }, `Delmak found ${products.length} products`);
+    console.log(`[DELMAK] ✅ Found ${products.length} products on this page`);
 
     if (products.length === 0) {
-      scraperLogger.warn({ url: categoryUrl }, 'No products found on Delmak category');
       return 0;
     }
 
-    // Insert into database
     let inserted = 0;
     for (const product of products) {
       try {
         await global.db`
           INSERT INTO products (part_name, part_number, price, supplier, product_url)
           VALUES (${product.part_name}, ${product.part_number}, ${product.price}, ${product.supplier}, ${product.product_url})
-          ON CONFLICT (product_url) DO UPDATE
-          SET price = ${product.price}, last_updated = CURRENT_TIMESTAMP
         `;
         inserted++;
       } catch (err) {
-        scraperLogger.warn({ product: product.part_name, error: err.message }, 'Insert error for Delmak product');
+        if (err.message.includes('unique constraint')) {
+          console.log('[DELMAK] Product already exists (skipped)');
+        } else {
+          console.warn('[DELMAK] Insert error:', err.message);
+        }
       }
 
-      await randomDelay(50, 150);
+      await new Promise(r => setTimeout(r, 50 + Math.random() * 100));
     }
 
-    scraperLogger.info({ inserted, total: products.length }, 'Delmak category scrape complete');
+    console.log(`[DELMAK] ✅ Inserted ${inserted}/${products.length} products`);
     return inserted;
   } catch (err) {
-    scraperLogger.error({ error: err.message, url: categoryUrl }, 'Delmak category scrape failed');
+    console.error('[DELMAK] Scrape error:', err.message);
     throw err;
   }
 }
 
-/**
- * Run all Delmak categories
- */
-async function runDelmakScraper(categories = null) {
-  const defaultCategories = [
-    'https://www.delmak.mk/spare-parts/air-filters',
-    'https://www.delmak.mk/spare-parts/oil-filters'
-  ];
+async function runDelmakScraper() {
+  console.log(`\n[DELMAK] Starting scrape of ${DELMAK_CATEGORIES.length} categories\n`);
+  
+  let totalInserted = 0;
 
-  const categoriesToScrape = categories || defaultCategories;
-  let total = 0;
-
-  for (const category of categoriesToScrape) {
+  for (let i = 0; i < DELMAK_CATEGORIES.length; i++) {
+    const url = DELMAK_CATEGORIES[i];
     try {
-      const count = await scrapeDelmakCategory(category);
-      total += count;
-      await randomDelay(1000, 2000);
+      console.log(`[DELMAK] Category ${i + 1}/${DELMAK_CATEGORIES.length}`);
+      const inserted = await scrapeDelmakCategory(url);
+      totalInserted += inserted;
+      
+      await new Promise(r => setTimeout(r, 2000 + Math.random() * 1000));
     } catch (err) {
-      scraperLogger.error({ category, error: err.message }, 'Failed to scrape Delmak category');
+      console.error(`[DELMAK] Failed to scrape category ${i + 1}:`, err.message);
     }
   }
 
-  return total;
+  console.log(`\n[DELMAK] ✅ TOTAL INSERTED: ${totalInserted} products\n`);
+  return totalInserted;
 }
 
 module.exports = { scrapeDelmakCategory, runDelmakScraper };
