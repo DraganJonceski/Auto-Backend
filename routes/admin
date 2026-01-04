@@ -1,0 +1,153 @@
+// routes/admin.js - Updated scrape-all endpoint
+
+const express = require('express');
+const router = express.Router();
+const logger = require('../utils/logger');
+const { randomDelay } = require('../utils/scraperConfig');
+const { runDelmakScraper, scrapeDelmakCategory } = require('../scrapers/delmakScraper');
+const { scrapeAlvadiCategory, discoverAlvadiSubcategories } = require('../scrapers/alvadiScraper');
+const { scrapeAutocentar, discoverAutocentarSubcategories } = require('../scrapers/autocentarScraper');
+const BASE_CATEGORIES = require('../scrapers/categoryUrls');
+
+// ... existing admin auth middleware ...
+
+/**
+ * GET /api/admin/scrape-all
+ * Triggers all scrapers with hybrid discovery
+ */
+router.get('/scrape-all', async (req, res) => {
+  try {
+    logger.info('Admin triggered scrape-all');
+    
+    if (!global.db) {
+      return res.status(503).json({ 
+        success: false, 
+        error: 'Database not initialized' 
+      });
+    }
+
+    const results = {};
+    const startTime = Date.now();
+
+    // ========== DELMAK ==========
+    try {
+      logger.info('Starting Delmak scrape...');
+      let delmakTotal = 0;
+      
+      for (const category of BASE_CATEGORIES.delmak) {
+        try {
+          const count = await scrapeDelmakCategory(category);
+          delmakTotal += count;
+        } catch (err) {
+          logger.warn({ category, error: err.message }, 'Delmak category failed, continuing...');
+        }
+        await randomDelay(1000, 2000);
+      }
+      
+      results.delmak = delmakTotal;
+      logger.info({ count: delmakTotal }, 'Delmak scrape completed');
+    } catch (err) {
+      logger.error({ error: err.message }, 'Delmak scrape failed');
+      results.delmak = { error: err.message };
+    }
+
+    // ========== ALVADI (with subcategory discovery) ==========
+    try {
+      logger.info('Starting Alvadi scrape with subcategory discovery...');
+      let alvadiTotal = 0;
+      
+      for (const baseCategory of BASE_CATEGORIES.alvadi) {
+        try {
+          // Discover subcategories
+          const subCategories = await discoverAlvadiSubcategories(baseCategory);
+          
+          if (subCategories.length === 0) {
+            // If no subcategories found, try to scrape the category itself
+            logger.info({ url: baseCategory }, 'No subcategories found, scraping base category');
+            const count = await scrapeAlvadiCategory(baseCategory);
+            alvadiTotal += count;
+          } else {
+            // Scrape each discovered subcategory
+            for (const subUrl of subCategories) {
+              try {
+                const count = await scrapeAlvadiCategory(subUrl);
+                alvadiTotal += count;
+                await randomDelay(1000, 2000);
+              } catch (err) {
+                logger.warn({ url: subUrl, error: err.message }, 'Alvadi subcategory failed');
+              }
+            }
+          }
+          
+          await randomDelay(2000, 3000);
+        } catch (err) {
+          logger.warn({ category: baseCategory, error: err.message }, 'Alvadi base category discovery failed');
+        }
+      }
+      
+      results.alvadi = alvadiTotal;
+      logger.info({ count: alvadiTotal }, 'Alvadi scrape completed');
+    } catch (err) {
+      logger.error({ error: err.message }, 'Alvadi scrape failed');
+      results.alvadi = { error: err.message };
+    }
+
+    // ========== AUTOCENTAR (with subcategory discovery) ==========
+    try {
+      logger.info('Starting Autocentar scrape with subcategory discovery...');
+      let autocentarTotal = 0;
+      
+      for (const baseCategory of BASE_CATEGORIES.autocentar) {
+        try {
+          // Discover subcategories
+          const subCategories = await discoverAutocentarSubcategories(baseCategory);
+          
+          if (subCategories.length === 0) {
+            logger.info({ url: baseCategory }, 'No subcategories found, scraping base category');
+            const count = await scrapeAutocentar(baseCategory);
+            autocentarTotal += count;
+          } else {
+            // Scrape each discovered subcategory
+            for (const subUrl of subCategories) {
+              try {
+                const count = await scrapeAutocentar(subUrl);
+                autocentarTotal += count;
+                await randomDelay(1000, 2500);
+              } catch (err) {
+                logger.warn({ url: subUrl, error: err.message }, 'Autocentar subcategory failed');
+              }
+            }
+          }
+          
+          await randomDelay(2000, 3000);
+        } catch (err) {
+          logger.warn({ category: baseCategory, error: err.message }, 'Autocentar base category discovery failed');
+        }
+      }
+      
+      results.autocentar = autocentarTotal;
+      logger.info({ count: autocentarTotal }, 'Autocentar scrape completed');
+    } catch (err) {
+      logger.error({ error: err.message }, 'Autocentar scrape failed');
+      results.autocentar = { error: err.message };
+    }
+
+    const duration = Date.now() - startTime;
+    logger.info({ results, duration_ms: duration }, 'Scrape-all completed');
+
+    res.json({
+      success: true,
+      results,
+      duration_ms: duration,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error({ error: error.message }, 'Scrape-all endpoint error');
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+module.exports = router;
