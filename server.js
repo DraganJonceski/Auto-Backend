@@ -79,7 +79,7 @@ init();
 
 /* ===== Routes ===== */
 app.use('/api', searchRoutes);
-app.use('/api/tracking', trackingRoutes);
+app.use('/api/click', trackingRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {
