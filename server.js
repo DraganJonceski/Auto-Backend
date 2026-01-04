@@ -1,4 +1,5 @@
 // server.js
+
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
@@ -8,8 +9,6 @@ const createTables = require('./models/createTables');
 const searchRoutes = require('./routes/search');
 const trackingRoutes = require('./routes/click');
 const adminRoutes = require('./routes/admin');
-const { runDelmakScraper } = require('./scrapers/delmakScraper');
-const scrapeAlvadiCategory = require('./scrapers/alvadiScraper');
 const { logger } = require('./utils/logger');
 
 dotenv.config();
@@ -24,6 +23,7 @@ const app = express();
 function adminAuth(req, res, next) {
   const token = req.headers['x-admin-token'] || req.query.token;
   if (token !== process.env.admin_token) {
+    logger.warn({ token: token ? 'provided' : 'missing' }, 'Admin auth failed');
     return res.status(403).json({ error: 'Forbidden' });
   }
   next();
@@ -36,13 +36,6 @@ const allowedOrigins = new Set([
   'http://localhost:5173'
 ]);
 
-// Run scrapers every 6 hours
-cron.schedule('0 */6 * * *', async () => {
-  console.log('Running scheduled scrape...');
-  await runDelmakScraper();
-  await scrapeAlvadiCategory('https://alvadi.mk/...');
-});
-
 app.use(
   cors({
     origin(origin, callback) {
@@ -50,7 +43,7 @@ app.use(
       if (allowedOrigins.has(origin)) {
         return callback(null, true);
       }
-      console.error('CORS blocked origin:', origin);
+      logger.warn({ origin }, 'CORS blocked origin');
       return callback(new Error('Not allowed by CORS'));
     }
   })
@@ -61,50 +54,47 @@ app.use(express.json());
 /* ===== PostgreSQL Init ===== */
 async function init() {
   try {
-    console.log('[INIT] DATABASE_URL env var:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
-    
+    logger.info('[INIT] DATABASE_URL env var:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
     if (!process.env.DATABASE_URL) {
-      console.error('[INIT] ERROR: DATABASE_URL not found in environment variables');
+      logger.error('[INIT] ERROR: DATABASE_URL not found in environment variables');
       return;
     }
 
     pool = await connectToDatabase();
     global.db = pool;
-    
-    console.log('[INIT] Pool created, creating tables...');
+    logger.info('[INIT] Pool created, creating tables...');
     await createTables();
-    
     dbInitialized = true;
-    console.log('[INIT] PostgreSQL fully initialized and ready');
+    logger.info('[INIT] PostgreSQL fully initialized and ready');
   } catch (err) {
-    console.error('[INIT] PostgreSQL initialization error:', err.message);
-    console.error('[INIT] Full error:', err);
+    logger.error('[INIT] PostgreSQL initialization error:', err.message);
+    logger.error('[INIT] Full error:', err);
     dbInitialized = false;
   }
 }
 
-// Start initialization immediately
 init();
 
 /* ===== Routes ===== */
 app.use('/api', searchRoutes);
 app.use('/api/click', trackingRoutes);
+app.use('/api/admin', adminRoutes); // ADD THIS
 
 app.get('/api/health', async (req, res) => {
   try {
     const sql = await connectToDatabase();
     const result = await sql`SELECT NOW()`;
+    logger.info('Health check OK');
     res.json({
       status: 'ok',
       dbConnected: !!result[0],
       timestamp: result[0].now
     });
   } catch (err) {
+    logger.error({ error: err.message }, 'Health check failed');
     res.status(500).json({ status: 'error', error: err.message });
   }
 });
-
-
 
 app.get('/api/debug-env', (req, res) => {
   res.json({
@@ -115,59 +105,11 @@ app.get('/api/debug-env', (req, res) => {
   });
 });
 
-/* ===== Admin routes ===== */
-app.get('/api/admin/scrape-delmak-now', adminAuth, async (req, res) => {
-  try {
-    if (!global.db) {
-      return res.status(503).json({ success: false, error: 'Database not initialized' });
-    }
-
-    console.log('[ADMIN] Delmak scrape triggered');
-    const inserted = await runDelmakScraper();
-    res.json({
-      success: true,
-      supplier: 'Delmak',
-      scraped: inserted || 0
-    });
-  } catch (error) {
-    console.error('Delmak scrape error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-app.get('/api/admin/scrape-alvadi', adminAuth, async (req, res) => {
-  try {
-    if (!global.db) {
-      return res.status(503).json({ success: false, error: 'Database not initialized' });
-    }
-
-    const { url } = req.query;
-    if (!url) {
-      return res.status(400).json({ success: false, error: 'Missing url parameter' });
-    }
-    const scrapedCount = await scrapeAlvadiCategory(url);
-    res.json({
-      success: true,
-      supplier: 'Alvadi',
-      scraped: scrapedCount
-    });
-  } catch (error) {
-    console.error('Alvadi scrape error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
 /* ===== Export for Vercel ===== */
 const PORT = process.env.PORT || 5000;
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    logger.info(`Server running on port ${PORT}`);
   });
 }
 
