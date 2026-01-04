@@ -9,7 +9,7 @@ const createTables = require('./createTables.js');
 const searchRoutes = require('./routes/search');
 const trackingRoutes = require('./routes/click');
 const adminRoutes = require('./routes/admin.js');
-const { logger } = require('./utils/logger');
+const  logger  = require('./utils/logger');
 
 dotenv.config();
 
