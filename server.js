@@ -6,7 +6,7 @@ const dotenv = require('dotenv');
 const cron = require('node-cron');
 const connectToDatabase = require('./db');
 const createTables = require('./createTables.js');
-const searchRoutes = require('./routes/search');
+const searchProducts = require('./routes/search');
 const trackingRoutes = require('./routes/click');
 const adminRoutes = require('./routes/admin.js');
 const  logger  = require('./utils/logger');
@@ -76,7 +76,7 @@ async function init() {
 init();
 
 /* ===== Routes ===== */
-app.use('/api', searchRoutes);
+app.use('/api', searchProducts);
 app.use('/api/click', trackingRoutes);
 app.use('/api/admin', adminRoutes); // ADD THIS
 
@@ -103,6 +103,22 @@ app.get('/api/debug-env', (req, res) => {
     globalDbExists: !!global.db,
     nodeEnv: process.env.NODE_ENV
   });
+});
+
+app.get('/api/search', async (req, res) => {
+  try {
+    const { query } = req.query;
+    
+    if (!query) {
+      return res.status(400).json({ error: 'Query required' });
+    }
+
+    const results = await searchProducts(query);
+    res.json(results);
+  } catch (err) {
+    console.error('API search error:', err.message);
+    res.status(500).json({ error: 'Search failed' });
+  }
 });
 
 /* ===== Export for Vercel ===== */

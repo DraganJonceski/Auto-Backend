@@ -1,27 +1,18 @@
-// routes/search.js
-
 const express = require('express');
-const  logger = require('../utils/logger');
-
 const router = express.Router();
-/**
- * GET /api/search?query=...
- * Search products by part_name
- */
-router.get('/search', async (req, res) => {
-  try {
-    const { query, limit = 50, offset = 0 } = req.query;
+const connectToDatabase = require('../db');
 
-    if (!query || query.trim().length < 2) {
-      return res.status(400).json({
-        error: 'Query must be at least 2 characters'
-      });
+async function searchProducts(query) {
+  try {
+    const sql = await connectToDatabase();
+    
+    if (!query || String(query).trim().length === 0) {
+      return [];
     }
 
-    logger.info({ query, limit, offset }, 'Search requested');
-
-    // Search in database
-    const results = await global.db`
+    const searchTerm = `%${query}%`;
+    
+    const results = await sql`
       SELECT 
         id,
         part_name,
@@ -29,59 +20,47 @@ router.get('/search', async (req, res) => {
         price,
         supplier,
         product_url,
-        last_updated,
-        created_at
+        car_brand,
+        car_model,
+        category
       FROM products
-      WHERE part_name ILIKE ${'%' + query + '%'}
-        OR part_number ILIKE ${'%' + query + '%'}
-      ORDER BY last_updated DESC
-      LIMIT ${parseInt(limit)}
-      OFFSET ${parseInt(offset)}
+      WHERE 
+        LOWER(part_name) LIKE LOWER(${searchTerm}) OR
+        LOWER(part_number) LIKE LOWER(${searchTerm}) OR
+        LOWER(car_brand) LIKE LOWER(${searchTerm}) OR
+        LOWER(car_model) LIKE LOWER(${searchTerm}) OR
+        LOWER(category) LIKE LOWER(${searchTerm})
+      ORDER BY car_brand, car_model, part_name
+      LIMIT 100
     `;
+    
+    return results;
+  } catch (err) {
+    console.error('Search error:', err.message);
+    throw err;
+  }
+}
 
-    // Get total count for pagination
-    const countResult = await global.db`
-      SELECT COUNT(*) as count
-      FROM products
-      WHERE part_name ILIKE ${'%' + query + '%'}
-        OR part_number ILIKE ${'%' + query + '%'}
-    `;
+router.get('/search', async (req, res) => {
+  try {
+    const query = req.query.query || '';
+    
+    if (!query.trim()) {
+      return res.json({ success: true, data: [] });
+    }
 
-    const total = parseInt(countResult[0].count);
-
-    // Map database fields to frontend field names
-    const mappedResults = results.map(product => ({
-      _id: product.id.toString(),                    // ← Map id to _id
-      partNumber: product.part_number,               // ← Map part_number to partNumber
-      partName: product.part_name,                   // ← Add part_name
-      price: parseFloat(product.price),
-      supplier: product.supplier,
-      productUrl: product.product_url,               // ← Map product_url to productUrl
-      affiliateUrl: product.product_url,             // ← Same as productUrl (for now)
-      description: `${product.supplier} - Part #${product.part_number || 'N/A'}`, // ← Generate description
-      lastUpdated: product.last_updated,
-      createdAt: product.created_at
-    }));
-
-    logger.info({ 
-      query, 
-      results_count: mappedResults.length, 
-      total_count: total 
-    }, 'Search completed');
-
-    res.json({
-      data: mappedResults,
-      total: total,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      hasMore: (parseInt(offset) + parseInt(limit)) < total
+    console.log(`Searching for: ${query}`);
+    const results = await searchProducts(query);
+    console.log(`Found ${results.length} results`);
+    
+    res.json({ 
+      success: true, 
+      data: results,
+      count: results.length
     });
-  } catch (error) {
-    logger.error({ error: error.message, query }, 'Search error');
-    res.status(500).json({
-      error: 'Search failed',
-      message: error.message
-    });
+  } catch (err) {
+    console.error('Search route error:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
