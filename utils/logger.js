@@ -1,16 +1,20 @@
-// utils/logger.js - SIMPLIFIED WORKING VERSION
+// utils/logger.js - SIMPLE VERSION (no pino-pretty)
 
-const pino = require('pino');
-
-const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',
-  transport: {
-    target: 'pino-pretty',
-    options: {
-      colorize: true,
-      translateTime: 'yyyy-mm-dd HH:MM:ss'
+const logger = {
+  info: (msg, data = '') => {
+    console.log(`[INFO] ${new Date().toISOString()} ${msg}`, data);
+  },
+  error: (msg, error = '') => {
+    console.error(`[ERROR] ${new Date().toISOString()} ${msg}`, error.message || error);
+  },
+  warn: (msg, data = '') => {
+    console.warn(`[WARN] ${new Date().toISOString()} ${msg}`, data);
+  },
+  debug: (msg, data = '') => {
+    if (process.env.DEBUG) {
+      console.log(`[DEBUG] ${new Date().toISOString()} ${msg}`, data);
     }
   }
-});
+};
 
-module.exports = { logger };
+module.exports = logger;
